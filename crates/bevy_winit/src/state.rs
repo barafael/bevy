@@ -528,6 +528,20 @@ impl ApplicationHandler<WinitUserEvent> for WinitAppRunnerState {
     }
 }
 
+/// kernel-panic patch: the page is hidden (a background tab), where
+/// `requestAnimationFrame`, and with it every winit redraw, stops.
+#[cfg(target_arch = "wasm32")]
+fn document_hidden() -> bool {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .is_some_and(|d| d.hidden())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn document_hidden() -> bool {
+    false
+}
+
 impl WinitAppRunnerState {
     fn redraw_requested(&mut self, event_loop: &ActiveEventLoop) {
         let mut redraw_message_cursor = MessageCursor::<RequestRedraw>::default();
@@ -628,7 +642,10 @@ impl WinitAppRunnerState {
         if should_update {
             let (_, windows) = focused_windows_state.get(self.world()).unwrap();
             // If no windows exist, this will evaluate to `true`.
-            let all_invisible = windows.iter().all(|w| !w.1.visible);
+            // kernel-panic patch: a hidden browser page never gets an
+            // animation frame, so its redraw never comes either: count
+            // its windows as invisible, so a wake-up runs the update.
+            let all_invisible = windows.iter().all(|w| !w.1.visible) || document_hidden();
 
             // Not redrawing, but the timeout elapsed.
             //
